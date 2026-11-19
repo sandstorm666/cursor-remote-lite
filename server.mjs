@@ -219,14 +219,21 @@ function pageHelpers() {
     return titled || el.querySelector('.ui-edit-tool-call__filename')?.innerText.trim() || null;
   };
 
+  // Newer Cursor dropped data-flat-index for a virtualized transcript (data-message-kind / data-message-id).
+  const MSG = '[data-flat-index], [data-message-kind]';
+  const inMsg = el => !!el.closest(MSG);
+  const itemId = el => el.dataset.flatIndex || el.dataset.messageId || el.dataset.reactTranscriptRowKey || el.dataset.index || '';
   const findPanel = () => {
     for (const ed of [...document.querySelectorAll('.aislash-editor-input, .ui-prompt-input-editor__input')].filter(vis)) {
+      const bar = ed.closest('.composer-bar');
+      if (bar) return bar;
       let p = ed;
-      while (p && !p.querySelector('[data-flat-index]')) p = p.parentElement;
+      while (p && !p.querySelector(`${MSG}, .composer-messages-container`)) p = p.parentElement;
       if (p) return p;
     }
-    const f = [...document.querySelectorAll('[data-flat-index]')].find(vis);
-    return f ? f.closest('.composer-bar') || f.parentElement : null;
+    const f = [...document.querySelectorAll(MSG)].find(vis);
+    if (f) return f.closest('.composer-bar') || f.closest('.composer-messages-container')?.parentElement || f.parentElement;
+    return [...document.querySelectorAll('.composer-bar')].find(vis) || null;
   };
 
   const buttonsIn = (root, strict) => [...root.querySelectorAll('button, [role=button], .anysphere-button, .anysphere-secondary-button, .composer-run-button, .composer-skip-button')]
@@ -262,7 +269,7 @@ function pageHelpers() {
     return head.innerText.trim().replace(/\s*\n\s*/g, ' · ').slice(0, 240);
   };
 
-  const topItems = panel => [...panel.querySelectorAll('[data-flat-index]')].filter(e => !e.parentElement.closest('[data-flat-index]'));
+  const topItems = panel => [...panel.querySelectorAll(MSG)].filter(e => vis(e) && !e.parentElement.closest(MSG));
 
   // Messages sent while the Agent is running wait in Cursor's queue tray until the current turn ends.
   const QUEUE_ROW = '[data-queue-row], .composer-toolbar-queue-item[data-queue-item-id]';
@@ -291,7 +298,7 @@ function pageHelpers() {
   const subagents = () => {
     const names = new Set();
     for (const h of document.querySelectorAll('.task-tool-call-header')) {
-      if (!vis(h) || !h.closest('[data-flat-index]')?.querySelector('.ui-subagent-status-indicator--running-loader, .task-subagent-header-pill-button--stop')) continue;
+      if (!vis(h) || !h.closest(MSG)?.querySelector('.ui-subagent-status-indicator--running-loader, .task-subagent-header-pill-button--stop')) continue;
       const n = h.querySelector('span.truncate')?.childNodes[0]?.textContent.trim();
       if (n) names.add(n);
     }
@@ -406,17 +413,17 @@ function pageHelpers() {
     const r = panel.getBoundingClientRect();
     const items = topItems(panel).map(el => {
       const kindEl = el.matches('[data-message-kind]') ? el : el.querySelector('[data-message-kind]');
-      const k = kindEl?.dataset.messageKind || (el.querySelector('.composer-human-message, .aislash-editor-input-readonly') ? 'human' : 'other');
-      const item = { i: el.dataset.flatIndex, k };
-      if (k === 'human') item.t = (el.querySelector('.aislash-editor-input-readonly, .composer-human-message') || el).innerText.trim();
+      const k = kindEl?.dataset.messageKind || (el.querySelector('.composer-human-message, .aislash-editor-input-readonly, .composer-human-tiptap-readonly-editor') ? 'human' : 'other');
+      const item = { i: itemId(el), k };
+      if (k === 'human') item.t = (el.querySelector('.aislash-editor-input-readonly, .composer-human-tiptap-readonly-editor, .composer-human-message-body, .composer-human-message') || el).innerText.trim();
       else if (k === 'assistant') { const md = el.querySelector('.markdown-root'); item.h = md ? clean(md) : esc(el.innerText); }
       else item.t = summary(el);
       if (k === 'tool') { const f = toolFile(el); if (f) item.f = f; }
       const b = buttonsIn(el, false);
       if (b.length) item.b = b.map(x => x.label);
       return item;
-    });
-    const global = buttonsIn(panel, true).filter(x => !x.el.closest('[data-flat-index]') && !inQn(x.el)).map(x => x.label);
+    }).filter(it => it.i);
+    const global = buttonsIn(panel, true).filter(x => !inMsg(x.el) && !inQn(x.el)).map(x => x.label);
     const modeEl = [...document.querySelectorAll('.composer-unified-dropdown[data-mode]')].find(vis);
     const modelEl = [...document.querySelectorAll('.ui-model-picker__trigger, .composer-unified-dropdown-model')].find(vis);
     return {
@@ -507,9 +514,9 @@ function pageHelpers() {
   const locate = (item, n) => {
     const panel = findPanel();
     if (!panel) return null;
-    const root = item === 'g' ? panel : panel.querySelector(`[data-flat-index="${CSS.escape(item)}"]`);
+    const root = item === 'g' ? panel : topItems(panel).find(el => itemId(el) === item);
     if (!root) return null;
-    const list = item === 'g' ? buttonsIn(panel, true).filter(x => !x.el.closest('[data-flat-index]') && !inQn(x.el)) : buttonsIn(root, false);
+    const list = item === 'g' ? buttonsIn(panel, true).filter(x => !inMsg(x.el) && !inQn(x.el)) : buttonsIn(root, false);
     const b = list[n]?.el;
     if (!b) return null;
     b.scrollIntoView({ block: 'center' });
@@ -535,9 +542,9 @@ function pageHelpers() {
     let waiting = null, waitingText = '';
     for (const el of items.slice(-3)) {
       const labels = buttonsIn(el, false).map(x => x.label).filter(l => WAIT.test(l));
-      if (labels.length) { waiting = `${el.dataset.flatIndex}:${labels.join('/')}`; waitingText = summary(el); }
+      if (labels.length) { waiting = `${itemId(el)}:${labels.join('/')}`; waitingText = summary(el); }
     }
-    const global = buttonsIn(panel, true).filter(x => !x.el.closest('[data-flat-index]') && !inQn(x.el) && WAIT.test(x.label)).map(x => x.label);
+    const global = buttonsIn(panel, true).filter(x => !inMsg(x.el) && !inQn(x.el) && WAIT.test(x.label)).map(x => x.label);
     if (!waiting && global.length) { waiting = `g:${global.join('/')}`; waitingText = global.join(' / '); }
     const qs = questions();
     if (qs?.list.length) {
