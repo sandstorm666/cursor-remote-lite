@@ -286,20 +286,6 @@ GitHub Actions is only used when the author publishes a new APK release; nothing
 
 **Tapping a file says it can't be found**: the file may have been deleted or moved; for files in SSH windows, your computer needs passwordless `ssh` to that machine.
 
-## Support the project
-
-If you find it useful, you can buy the author a coffee ☕ (entirely optional).
-
-| WeChat Pay | Alipay |
-|---|---|
-| <img src="app/donate-wechat.jpg" width="220" alt="WeChat Pay QR code"> | <img src="app/donate-alipay.jpg" width="220" alt="Alipay QR code"> |
-
-What the app shows under "⋯ → Support the author" is controlled by `app/donate.json`. You can add international payment links in `links`, for example:
-
-```json
-"links": [{ "label": "PayPal", "url": "https://paypal.me/your-username" }]
-```
-
 ## License
 
 MIT

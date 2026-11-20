@@ -284,20 +284,6 @@ GitHub Actions 只在作者发布新版 APK 时用到，用户这边不会运行
 
 **点文件提示找不到**：文件可能已被删除或移动；SSH 窗口的文件需要电脑能免密 `ssh` 到那台机器。
 
-## 赞赏
-
-觉得好用的话，可以请作者喝杯咖啡 ☕（完全自愿）
-
-| 微信 | 支付宝 |
-|---|---|
-| <img src="app/donate-wechat.jpg" width="220" alt="微信收款码"> | <img src="app/donate-alipay.jpg" width="220" alt="支付宝收款码"> |
-
-App 里「⋯ → 赞赏作者」显示的内容由 `app/donate.json` 控制，可以在 `links` 里加海外付款链接，例如：
-
-```json
-"links": [{ "label": "PayPal", "url": "https://paypal.me/你的用户名" }]
-```
-
 ## License
 
 MIT
