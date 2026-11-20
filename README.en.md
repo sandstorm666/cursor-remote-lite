@@ -77,7 +77,7 @@ So this project provides both: an Android app that installs without Google servi
 **This project's limitations**, stated up front:
 
 - It works by reading Cursor's UI, so a major Cursor redesign may require an update.
-- The background service currently supports macOS only; on Windows, start Cursor with `start-cursor.ps1` and keep the relay running by hand (see below).
+- Background service: macOS uses `./service.sh`; Windows uses `service.ps1` (starts at logon; see "Windows handbook"). Cursor itself still has to be started with `start-cursor.ps1` so the debugging port is open.
 - Cloudflare's free quick tunnels come with no availability guarantee and occasionally disconnect and reconnect.
 
 ## Features
@@ -224,10 +224,7 @@ powercfg /setacvalueindex SCHEME_CURRENT SUB_BUTTONS LIDACTION 0
 powercfg /setactive SCHEME_CURRENT
 ```
 
-How to start on Windows (run these in PowerShell, not Cursor's built-in terminal, which closes when Cursor restarts):
-
-1. In the project directory, run `powershell -ExecutionPolicy Bypass -File .\start-cursor.ps1`. Cursor quits and reopens with the debugging port (the equivalent of `./start-cursor.sh` on Mac).
-2. Then run `npm run public` and keep that window open. `npm run pair` works as usual.
+Day-to-day start, pairing, autostart and troubleshooting on Windows are in the **Windows handbook** below. Run commands from PowerShell in the project directory, not from Cursor's built-in terminal (that terminal closes when Cursor restarts).
 
 ### Trade-offs
 
@@ -238,7 +235,7 @@ How to start on Windows (run these in PowerShell, not Cursor's built-in terminal
 ### What happens if you don't set this up
 
 - After your computer sleeps, the phone shows "Computer offline" and you can't do anything; **any task the Agent is running also pauses** until someone wakes the computer.
-- After waking, the service recovers automatically. The tunnel address changes, but the new address is published automatically and the phone reconnects within about a minute, **no re-pairing needed**.
+- After waking, the service recovers automatically. **If you already configured a fixed address with `npm run setup`**, the new tunnel is published to GitHub Pages and the phone reconnects within about a minute, with no re-pairing. Without a fixed address the temporary hostname dies and you have to pair again, as described in the handbook.
 
 ## Security
 
@@ -250,6 +247,87 @@ How to start on Windows (run these in PowerShell, not Cursor's built-in terminal
 - Repeated failed pairing attempts trigger a temporary lockout.
 - A paired device has full control over your Cursor, which is equivalent to being able to run commands on your computer. **Don't post pairing links in group chats or anywhere public.**
 
+## Windows handbook
+
+Run these in **PowerShell** from the project directory (for example `C:\cursor-remote-lite`). Do not use Cursor's built-in terminal.
+
+The phone works only when both of these are running on the computer:
+
+1. **Cursor** with debugging port `9222` (`start-cursor.ps1`).
+2. The **relay**, exposed through a Cloudflare tunnel (`service.ps1` or `npm run public`).
+
+### First time
+
+```powershell
+npm install
+npm run setup
+powershell -ExecutionPolicy Bypass -File .\start-cursor.ps1
+powershell -ExecutionPolicy Bypass -File .\service.ps1 install
+npm run pair
+```
+
+- `npm run setup` is what creates the **fixed address** (your own GitHub Pages site, like `https://username.github.io/repo/`). It needs the GitHub CLI (`gh`) installed and logged in. Without this step, every new tunnel hostname is different and old links on the phone stop working.
+- `service.ps1 install` registers a scheduled task named **CursorRemoteLite**. After that, logging on to Windows starts the relay in the background. You do not keep an `npm run public` window open.
+- The QR code / link from `npm run pair` is valid for **10 minutes and one use**. Android: install the APK, paste the link into the app, or open it in the browser and tap "Open in app". iPhone: open it in Safari, then Share → Add to Home Screen.
+
+### Fixed address vs temporary address
+
+| | After `npm run setup` | Without it |
+|---|---|---|
+| Address the phone remembers | Fixed `github.io` URL | That session's `*.trycloudflare.com` |
+| After a relay restart or a new login | The new tunnel is published to Pages; the phone reconnects in about a minute, **no re-pairing** | The old hostname dies. Run `stop`, then `start`, then `npm run pair` |
+| Does autostart run setup for you? | No. Autostart only launches the relay. Configure the fixed address once, separately | Same |
+
+### Day to day
+
+- The computer can be locked and the display can turn off, but it must not sleep (see "Preventing sleep" above).
+- The relay starts on its own after you log on. Task Manager shows **node.exe** (`server.mjs --tunnel`) and **cloudflared.exe**. There is no process named CursorRemoteLite; that name is the scheduled task.
+- Autostart also watches Cursor. If the process is running but debugging port `9222` is still closed after about 30 seconds (typical right after Cursor updates and relaunches itself), it quits Cursor and reopens it with the debugging port. It does not launch Cursor when you have quit it completely. Unsaved files may prompt you to save.
+- On the phone, pick the right window at the top left and read replies under **Chat**. History only lists titles; open one to see that conversation.
+- If Cursor is already listening on the debugging port, `start-cursor.ps1` prints `Port 9222 already has a CDP endpoint`. That means the port is already open. Do not restart Cursor again.
+
+### Status and stopping
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\service.ps1 status
+powershell -ExecutionPolicy Bypass -File .\service.ps1 logs
+powershell -ExecutionPolicy Bypass -File .\service.ps1 stop
+powershell -ExecutionPolicy Bypass -File .\service.ps1 start
+```
+
+`stop` ends the current run only; the next login still starts it. To remove logon autostart, double-click `stop-autostart.bat` or run `powershell -ExecutionPolicy Bypass -File .\service.ps1 uninstall`.
+
+Log file: `%USERPROFILE%\.cursor-remote-lite\server.log`.
+
+### The tunnel died and you need to pair again
+
+The phone says "Could not load. Check your phone's network (github.io must be reachable)", scanning says the pairing link is no longer valid, or the old `trycloudflare.com` name no longer resolves. That message appears whenever the current app address cannot be read. It does not always mean github.io itself is blocked. Without a fixed address it usually means the temporary tunnel hostname died while the local relay was still running.
+
+Do not run `npm run pair` again against the old address. Get a new tunnel, then pair:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\service.ps1 stop
+powershell -ExecutionPolicy Bypass -File .\service.ps1 start
+```
+
+Wait until the log shows a new `公网地址：https://….trycloudflare.com` (and "已发布最新地址" if a fixed address is configured), then:
+
+```powershell
+npm run pair
+```
+
+Use the new link. The relay has to be running while you pair. The `stop` above is only to drop the dead tunnel, not a requirement that pairing happen with the service off.
+
+### Errors you will actually see
+
+| What you see | What it means | What to do |
+|---|---|---|
+| `EADDRINUSE … 127.0.0.1:3939` | The relay is already running | Do not run `npm run public` again. Check `service.ps1 status` |
+| `Port 9222 already has a CDP endpoint` | Cursor's debugging port is already open | Normal. Do not run `start-cursor.ps1` again |
+| Phone: "Not connected to Cursor" | Cursor was not started with the debugging port | Quit Cursor, then run `start-cursor.ps1` |
+| Phone: "Computer offline" | The computer is asleep, or the relay just restarted | Prevent sleep; with a fixed address, wait about a minute |
+| Phone: "No chat panel found." | That window has no Agent chat open | Open the Agent panel in Cursor, or switch the phone to Screen |
+
 ## Common commands
 
 | Command | What it does |
@@ -258,9 +336,12 @@ How to start on Windows (run these in PowerShell, not Cursor's built-in terminal
 | `npm run pair` | Pair a new device (shows a QR code) |
 | `npm run devices` | List paired devices; `npm run devices remove <id>` removes one |
 | `npm run 2fa` | Enable / re-bind Authenticator 2FA; `npm run 2fa off` disables it; `npm run 2fa status` shows status |
-| `npm run public` | Run in the foreground (public access + fixed address) |
+| `npm run public` | Run in the foreground (public). Publishes the new tunnel when a fixed address is configured |
 | `npm start` | Run in the foreground (LAN only) |
-| `./service.sh status / logs / uninstall` | Background service status / logs / uninstall |
+| `./service.sh install / status / logs / uninstall` | macOS logon autostart |
+| `powershell -ExecutionPolicy Bypass -File .\service.ps1 install` | Windows logon autostart (task name CursorRemoteLite) |
+| `…\service.ps1 status / logs / start / stop / uninstall` | Windows status, start, stop, remove autostart |
+| `stop-autostart.bat` | Windows: stop the relay and remove logon autostart in one step |
 | `npm run reset` | Clear all pairings, 2FA and configuration (you'll need to pair again afterwards) |
 
 ## FAQ

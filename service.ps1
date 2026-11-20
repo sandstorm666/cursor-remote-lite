@@ -1,5 +1,6 @@
 ﻿# Run the public relay at Windows logon, and restart it if it exits.
 # Usage: powershell -ExecutionPolicy Bypass -File .\service.ps1 install | uninstall | start | stop | status | logs
+# `watch` is started by the logon task. It relaunches Cursor with the debugging port when Cursor is running without one (for example right after an update).
 param([Parameter(Position = 0)][string]$Command = 'help')
 $ErrorActionPreference = 'Stop'
 
@@ -9,6 +10,7 @@ $DataDir = Join-Path $HOME '.cursor-remote-lite'
 $Log = Join-Path $DataDir 'server.log'
 $Launcher = Join-Path $DataDir 'run-public.ps1'
 $Port = if ($env:PORT) { $env:PORT } else { 3939 }
+$CdpPort = if ($env:CDP_PORT) { $env:CDP_PORT } else { 9222 }
 
 function Find-Exe([string]$Name) {
   $cmd = Get-Command $Name -ErrorAction SilentlyContinue
@@ -19,6 +21,20 @@ function Find-Exe([string]$Name) {
 function Get-RelayProcesses {
   Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue |
     Where-Object { $_.CommandLine -and $_.CommandLine -match 'server\.mjs' }
+}
+
+function Get-WatcherProcesses {
+  Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -and $_.CommandLine -match 'service\.ps1' -and $_.CommandLine -match '\bwatch\b' }
+}
+
+function Test-CdpPort {
+  try {
+    $c = New-Object System.Net.Sockets.TcpClient
+    $c.Connect('127.0.0.1', [int]$CdpPort)
+    $c.Close()
+    $true
+  } catch { $false }
 }
 
 function Test-RelayPort {
@@ -44,11 +60,17 @@ function Install-Relay {
   $nodeLit = $node.Replace("'", "''")
   $nodeDirLit = $nodeDir.Replace("'", "''")
   $cfDirLit = $cloudflaredDir.Replace("'", "''")
+  $svcLit = $PSCommandPath.Replace("'", "''")
 
   @"
 `$ErrorActionPreference = 'Continue'
 `$env:PATH = '$nodeDirLit;$cfDirLit;' + `$env:PATH
 Set-Location -LiteralPath '$dirLit'
+`$watching = Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue |
+  Where-Object { `$_.CommandLine -and `$_.CommandLine -match 'service\.ps1' -and `$_.CommandLine -match '\bwatch\b' }
+if (-not `$watching) {
+  Start-Process -WindowStyle Hidden powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','$svcLit','watch'
+}
 & '$nodeLit' '$dirLit\server.mjs' --tunnel *>> '$logLit'
 "@ | Set-Content -LiteralPath $Launcher -Encoding UTF8
 
@@ -67,7 +89,9 @@ Set-Location -LiteralPath '$dirLit'
   $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
   Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null
 
-  if (Test-RelayPort) {
+  if ($env:CR_INSTALL_NO_START -eq '1') {
+    Write-Host '已更新登录自启（含调试端口检测）。这次没有启动。'
+  } elseif (Test-RelayPort) {
     Write-Host "已设为登录后自动启动。当前端口 $Port 已有服务在跑，这次没有重启它。"
     Write-Host '下次登录会自动拉起。若要马上改由开机任务接管：先 stop，再 start。'
   } else {
@@ -102,7 +126,43 @@ function Stop-Relay {
   Get-CimInstance Win32_Process -Filter "Name = 'cloudflared.exe'" -ErrorAction SilentlyContinue |
     Where-Object { $_.CommandLine -and $_.CommandLine -match '127\.0\.0\.1:' } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+  foreach ($w in @(Get-WatcherProcesses)) {
+    Stop-Process -Id $w.ProcessId -Force -ErrorAction SilentlyContinue
+  }
   if ($procs.Count) { Write-Host "已停止 $($procs.Count) 个中继进程。" } else { Write-Host '当前没有在跑的中继。' }
+}
+
+function Write-WatchLog([string]$msg) {
+  $path = Join-Path $DataDir 'watch.log'
+  $line = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $msg`r`n"
+  try {
+    $fs = [System.IO.File]::Open($path, 'Append', 'Write', 'ReadWrite')
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($line)
+    $fs.Write($bytes, 0, $bytes.Length)
+    $fs.Close()
+  } catch {}
+}
+
+# Cursor updates relaunch the app without --remote-debugging-port. If Cursor is already open and the port stays down, quit and reopen it with the port.
+function Watch-Cursor {
+  $ErrorActionPreference = 'Continue'
+  $others = @(Get-WatcherProcesses | Where-Object { $_.ProcessId -ne $PID })
+  if ($others.Count) { exit 0 }
+  $startScript = Join-Path $Dir 'start-cursor.ps1'
+  $lastRestart = [datetime]::MinValue
+  Write-WatchLog '调试端口检测已启动'
+  while ($true) {
+    Start-Sleep -Seconds 15
+    if (Test-CdpPort) { continue }
+    $procs = @(Get-Process -Name Cursor -ErrorAction SilentlyContinue)
+    if (-not $procs.Count) { continue }
+    $oldest = $procs | Where-Object { $_.StartTime } | Sort-Object StartTime | Select-Object -First 1
+    if ($oldest -and ((Get-Date) - $oldest.StartTime).TotalSeconds -lt 30) { continue }
+    if (((Get-Date) - $lastRestart).TotalSeconds -lt 90) { continue }
+    $lastRestart = Get-Date
+    Write-WatchLog 'Cursor 在运行但没有调试端口，正在重新打开'
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $startScript
+  }
 }
 
 function Show-Status {
@@ -116,6 +176,9 @@ function Show-Status {
   } else {
     Write-Host '运行中：否'
   }
+  $watchers = @(Get-WatcherProcesses)
+  if ($watchers.Count) { Write-Host '调试端口检测：开' } else { Write-Host '调试端口检测：关' }
+  if (Test-CdpPort) { Write-Host "Cursor 调试端口 ${CdpPort}：开" } else { Write-Host "Cursor 调试端口 ${CdpPort}：关" }
 }
 
 switch ($Command) {
@@ -124,6 +187,7 @@ switch ($Command) {
   'start' { Start-Relay }
   'stop' { Stop-Relay }
   'status' { Show-Status }
+  'watch' { Watch-Cursor }
   'logs' {
     if (-not (Test-Path -LiteralPath $Log)) { Write-Host "还没有日志：$Log"; exit 0 }
     Get-Content -LiteralPath $Log -Tail 50 -Wait

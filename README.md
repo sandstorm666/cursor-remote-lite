@@ -77,7 +77,7 @@
 **本项目的不足**，也写在这里：
 
 - 靠读取 Cursor 的界面实现，Cursor 大改版后可能需要跟着更新。
-- 后台服务目前只支持 macOS；Windows 上用 `start-cursor.ps1` 启动 Cursor，服务需要手动开着（见下文）。
+- 后台服务：macOS 用 `./service.sh`；Windows 用 `service.ps1`（登录后自动跑，见「Windows 操作手册」）。Cursor 仍要用 `start-cursor.ps1` 带调试端口启动。
 - 免费的 Cloudflare 快速隧道没有可用性保证，偶尔会断开重连。
 
 ## 功能
@@ -222,10 +222,7 @@ powercfg /setacvalueindex SCHEME_CURRENT SUB_BUTTONS LIDACTION 0
 powercfg /setactive SCHEME_CURRENT
 ```
 
-Windows 上的启动方式（都在 PowerShell 里运行，不要用 Cursor 自带的终端，Cursor 重启时它会被一起关掉）：
-
-1. 在项目目录运行 `powershell -ExecutionPolicy Bypass -File .\start-cursor.ps1`，Cursor 会退出并带调试端口重新打开（等同于 Mac 上的 `./start-cursor.sh`）。
-2. 再运行 `npm run public`，这个窗口一直开着别关。`npm run pair` 照常使用。
+Windows 上的日常启动、配对、自启和排错见下文 **「Windows 操作手册」**。命令都在项目目录的 PowerShell 里执行，不要用 Cursor 自带的终端（Cursor 重启时它会被一起关掉）。
 
 ### 代价
 
@@ -236,7 +233,7 @@ Windows 上的启动方式（都在 PowerShell 里运行，不要用 Cursor 自�
 ### 不配置会怎样
 
 - 电脑睡眠后，手机显示「电脑不在线」，什么都做不了；**Agent 正在跑的任务也会暂停**，直到有人唤醒电脑。
-- 唤醒后服务会自动恢复。隧道地址会变，但会自动发布新地址，手机约 1 分钟后自动重连，**不需要重新配对**。
+- 唤醒后服务会自动恢复。**已经用 `npm run setup` 配过固定地址时**，新隧道地址会发到 GitHub Pages，手机约 1 分钟后自动重连，不用重新配对。没配固定地址时，临时域名会失效，需要按操作手册重新配对。
 
 ## 安全说明
 
@@ -248,6 +245,87 @@ Windows 上的启动方式（都在 PowerShell 里运行，不要用 Cursor 自�
 - 配对失败多次会临时锁定。
 - 能配对的设备可以完全控制你的 Cursor，等同于能在你电脑上执行命令。**不要把配对链接发到群里或公开的地方。**
 
+## Windows 操作手册
+
+下面的命令都在项目目录（例如 `C:\cursor-remote-lite`）的 **PowerShell** 里执行。不要用 Cursor 自带的终端。
+
+手机要能用，电脑上必须同时有两样东西在跑：
+
+1. **Cursor**，并且带调试端口 `9222`（`start-cursor.ps1`）。
+2. **中继**，对外是一条 Cloudflare 隧道（`service.ps1` 或 `npm run public`）。
+
+### 第一次
+
+```powershell
+npm install
+npm run setup
+powershell -ExecutionPolicy Bypass -File .\start-cursor.ps1
+powershell -ExecutionPolicy Bypass -File .\service.ps1 install
+npm run pair
+```
+
+- `npm run setup` 才会配置**固定地址**（你自己的 GitHub Pages，形如 `https://用户名.github.io/仓库名/`）。需要已安装并登录 `gh`。没做这一步时，每次隧道地址都会变，手机上的旧链接会失效。
+- `service.ps1 install` 在任务计划里登记 **CursorRemoteLite**，以后登录 Windows 会在后台自动跑中继，不用再开着 `npm run public` 的窗口。
+- `npm run pair` 的二维码 / 链接 **10 分钟有效，只能用一次**。安卓：装好 APK 后把链接粘贴进 App，或用浏览器打开再点「在 App 中打开」。iPhone：用 Safari 打开后「分享 → 添加到主屏幕」。
+
+### 固定地址和临时地址
+
+| | 做了 `npm run setup` | 没做 |
+|---|---|---|
+| 手机记住的地址 | 固定的 `github.io` | 当次的 `*.trycloudflare.com` |
+| 重启中继 / 重新登录后 | 新隧道会自动发到 Pages，约 1 分钟后手机自己连上，**不用再配对** | 旧域名失效，必须 `stop` → `start` → 再 `npm run pair` |
+| 自启脚本会不会帮你做 setup | 不会。自启只负责启动中继；固定地址要单独配一次 | 同左 |
+
+### 平时
+
+- 电脑可以锁屏、关屏幕，但不要睡眠（见上文「防睡眠」）。
+- 登录后中继会自己起来。任务管理器里看到的是 **node.exe**（`server.mjs --tunnel`）和 **cloudflared.exe**，看不到名叫 CursorRemoteLite 的进程。那个名字在「任务计划程序」里。
+- 自启还会盯着 Cursor：进程已经在跑、但调试端口 `9222` 超过约 30 秒仍没打开（常见于 Cursor 更新后自己重启），会自动退出并带调试端口重开。你把 Cursor 完全退出时，它不会自己再打开。未保存的文件可能弹出保存提示。
+- 手机打开 App，左上角选对窗口，在 **「对话」** 里看回复。「历史」只列出标题，点进去才会打开那次对话。
+- Cursor 已经带调试端口时，再跑 `start-cursor.ps1` 会提示 `Port 9222 already has a CDP endpoint`。这表示端口已经开着，**不用再重启 Cursor**。
+
+### 查看和停止
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\service.ps1 status   # 自启是否安装、进程是否在跑
+powershell -ExecutionPolicy Bypass -File .\service.ps1 logs     # 看日志，Ctrl+C 退出
+powershell -ExecutionPolicy Bypass -File .\service.ps1 stop     # 只停当前这次，下次登录还会自启
+powershell -ExecutionPolicy Bypass -File .\service.ps1 start    # 按已安装的任务立刻启动
+```
+
+彻底取消登录自启：双击项目里的 `stop-autostart.bat`，或运行 `powershell -ExecutionPolicy Bypass -File .\service.ps1 uninstall`。
+
+日志文件：`%USERPROFILE%\.cursor-remote-lite\server.log`。
+
+### 隧道挂了，要重新配对
+
+现象：手机显示「读取失败，请检查手机网络（需要能打开 github.io）」、扫码「配对已失效」，或电脑上打不开原来的 `trycloudflare.com`。这条文案只要读不到当前 App 地址就会出现，**不一定是 github.io 打不开**。没配固定地址时，通常是临时隧道域名已经失效，本机中继却还在。
+
+不要在旧地址上反复 `npm run pair`。先换一条新隧道，再配对：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\service.ps1 stop
+powershell -ExecutionPolicy Bypass -File .\service.ps1 start
+```
+
+等日志里出现新的 `公网地址：https://….trycloudflare.com`（配过固定地址则还会看到「已发布最新地址」），然后：
+
+```powershell
+npm run pair
+```
+
+用新链接。配对时服务要开着，**不用为了配对先停服务**；上面的 `stop` 只是为了丢掉已经失效的隧道。
+
+### 常见报错
+
+| 现象 | 含义 | 怎么做 |
+|---|---|---|
+| `EADDRINUSE … 127.0.0.1:3939` | 中继已经在跑 | 不要再执行 `npm run public`。看 `service.ps1 status` |
+| `Port 9222 already has a CDP endpoint` | Cursor 调试端口已经开着 | 正常，不用再跑 `start-cursor.ps1` |
+| 手机「未连接到 Cursor」 | Cursor 没带调试端口 | 先退出 Cursor，再跑 `start-cursor.ps1` |
+| 手机「电脑不在线」 | 电脑睡眠，或中继刚重启 | 阻止睡眠；配了固定地址就等约 1 分钟 |
+| 手机「没找到聊天面板」 | 当前窗口里没有打开 Agent 对话 | 在 Cursor 里打开 Agent 面板，或手机切到「画面」 |
+
 ## 常用命令
 
 | 命令 | 作用 |
@@ -256,9 +334,12 @@ Windows 上的启动方式（都在 PowerShell 里运行，不要用 Cursor 自�
 | `npm run pair` | 配对一台新设备（显示二维码） |
 | `npm run devices` | 查看已配对设备；`npm run devices remove <id>` 移除 |
 | `npm run 2fa` | 开启 / 重新绑定 Authenticator 二次验证；`npm run 2fa off` 关闭；`npm run 2fa status` 查看 |
-| `npm run public` | 前台运行（外网 + 固定地址） |
+| `npm run public` | 前台运行（外网）。配过固定地址时会自动发布新隧道 |
 | `npm start` | 前台运行（只在局域网） |
-| `./service.sh status / logs / uninstall` | 后台服务状态 / 日志 / 卸载 |
+| `./service.sh install / status / logs / uninstall` | macOS 登录自启 |
+| `powershell -ExecutionPolicy Bypass -File .\service.ps1 install` | Windows 登录自启（任务名 CursorRemoteLite） |
+| `…\service.ps1 status / logs / start / stop / uninstall` | Windows 查看、启停、取消自启 |
+| `stop-autostart.bat` | Windows 上一键停止并取消自启 |
 | `npm run reset` | 清除所有配对、二次验证和配置（之后要重新配对） |
 
 ## 常见问题
