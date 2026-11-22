@@ -71,8 +71,10 @@ function Install-Relay {
   $nodeDirLit = $nodeDir.Replace("'", "''")
   $cfDirLit = $cloudflaredDir.Replace("'", "''")
   $svcLit = $PSCommandPath.Replace("'", "''")
+  $hiddenLit = (Join-Path $Dir 'run-hidden.vbs').Replace("'", "''")
 
   # Keep the scheduled task process alive and restart the relay quickly after reboot / crash.
+  # Launch via wscript/run-hidden.vbs so login does not flash a PowerShell console.
   @"
 `$ErrorActionPreference = 'Continue'
 `$env:PATH = '$nodeDirLit;$cfDirLit;' + `$env:PATH
@@ -83,7 +85,7 @@ function Test-LocalPort([int]`$p) {
 `$watching = Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue |
   Where-Object { `$_.CommandLine -and `$_.CommandLine -match 'service\.ps1' -and `$_.CommandLine -match '\bwatch\b' }
 if (-not `$watching) {
-  Start-Process -WindowStyle Hidden powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','$svcLit','watch'
+  Start-Process -FilePath 'wscript.exe' -ArgumentList '"$hiddenLit"','"$svcLit"','watch' -WindowStyle Hidden
 }
 # Boot may not have DNS yet; wait up to ~60s, then keep retrying the relay every 30s.
 for (`$i = 0; `$i -lt 30; `$i++) {
@@ -102,8 +104,9 @@ while (`$true) {
 }
 "@ | Set-Content -LiteralPath $Launcher -Encoding UTF8
 
-  $arg = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$Launcher`""
-  $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arg
+  # Task Scheduler starting powershell.exe still flashes a console; start through VBS instead.
+  $hiddenVbs = Join-Path $Dir 'run-hidden.vbs'
+  $action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument "`"$hiddenVbs`" `"$Launcher`""
   $user = "$env:USERDOMAIN\$env:USERNAME"
   $trigger = New-ScheduledTaskTrigger -AtLogOn -User $user
   # No extra Delay: start as soon as the user logs on.

@@ -35,8 +35,14 @@ if (-not $Worker) {
     exit 1
   }
   # Detached so it survives when launched from Cursor's own terminal, which dies with Cursor.
+  # Prefer VBS so Startup / Task Scheduler never flashes a console.
   Set-Content -Path $Log -Value "$(Get-Date) launching worker for $exe"
-  Start-Process powershell -WindowStyle Hidden -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '-Worker')
+  $hidden = Join-Path $PSScriptRoot 'run-hidden.vbs'
+  if (Test-Path -LiteralPath $hidden) {
+    Start-Process -FilePath 'wscript.exe' -ArgumentList "`"$hidden`" `"$PSCommandPath`" -Worker" -WindowStyle Hidden
+  } else {
+    Start-Process powershell -WindowStyle Hidden -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '-Worker')
+  }
   Write-Host "Cursor will quit and reopen with the debugging port (see $Log)"
   exit 0
 }
