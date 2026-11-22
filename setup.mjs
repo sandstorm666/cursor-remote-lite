@@ -5,6 +5,7 @@ import path from 'node:path';
 import readline from 'node:readline/promises';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { ensureComputer, setComputerName, normalizeComputerName } from './auth.mjs';
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(os.homedir(), '.cursor-remote-lite');
@@ -93,6 +94,11 @@ if (has('gh') && await yes('  要设置吗？')) {
   saveConfig();
   console.log(`  手机 App 地址：https://${login.toLowerCase()}.github.io/${name}/`);
 }
+
+const current = ensureComputer();
+const computerName = normalizeComputerName(await ask('  这台电脑的显示名（手机上会看到）', current.name));
+if (!computerName) console.log('  名称无效，已保留当前名称');
+else setComputerName(computerName);
 
 console.log('\n3/4 后台服务');
 if (isMac && await yes('  设为开机自启（后台常驻，崩溃自动重启）？')) {

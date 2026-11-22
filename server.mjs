@@ -11,6 +11,7 @@ import { workspaces, workspaceForTitle, fileSize, readFile, parseRef } from './f
 import {
   DATA_DIR, encryptUrl, createPairing, pairingValid, consumePairing, listDevices, addDevice, findDevice, updateDevice,
   removeDevice, totpConfig, verifyTotp, needsTotp, saveState, appBase,
+  ensureComputer, setComputerName, computerPublic, normalizeComputerName,
 } from './auth.mjs';
 import { pushPublicKey, openEventStream, closeEventStreams, addViewer, removeViewer, deliver, startWatcher } from './notify.mjs';
 
@@ -1197,7 +1198,12 @@ async function handleApi(req, res, route) {
   const device = deviceFor(req);
 
   if (route === '/api/me') {
-    return json(req, res, 200, { paired: Boolean(device), needTotp: needsTotp(device), totp: Boolean(totpConfig()) });
+    return json(req, res, 200, {
+      paired: Boolean(device),
+      needTotp: needsTotp(device),
+      totp: Boolean(totpConfig()),
+      computer: computerPublic(),
+    });
   }
 
   if (route === '/api/pair' && req.method === 'POST') {
@@ -1214,10 +1220,19 @@ async function handleApi(req, res, route) {
     consumePairing();
     const { device: added, token } = addDevice(name);
     console.log(`[pair] 新设备「${added.name}」 ip=${ip}`);
-    return json(req, res, 200, { token });
+    return json(req, res, 200, { token, computer: computerPublic() });
   }
 
   if (!device) return json(req, res, 401, { error: '设备未配对' });
+
+  if (route === '/api/computer/name' && req.method === 'POST') {
+    const { name } = await readJson(req);
+    // Empty after trim is rejected; longer names are capped at 40 inside normalizeComputerName.
+    if (!normalizeComputerName(name)) return json(req, res, 400, { error: '名称无效' });
+    const computer = setComputerName(name);
+    if (!computer) return json(req, res, 400, { error: '名称无效' });
+    return json(req, res, 200, { ok: true, computer });
+  }
 
   if (route === '/api/totp' && req.method === 'POST') {
     if (lockedOut(ip)) return json(req, res, 429, { error: '尝试次数过多，请 15 分钟后再试' });
@@ -1385,6 +1400,12 @@ async function remoteShas() {
   return new Map(out.split('\n').filter(Boolean).map(l => l.split('\t')));
 }
 
+// Root listing does not include files inside urls/, so nested publishes look up their own blob SHA.
+async function remoteFileSha(name) {
+  const out = await run('gh', ['api', `repos/${PUBLISH_REPO}/contents/${name}`, '--jq', '.sha']).catch(() => '');
+  return out.trim() || undefined;
+}
+
 // Keeps the GitHub Pages copy of the app identical to app/, uploading only files that changed.
 async function syncApp() {
   const remote = await remoteShas();
@@ -1399,18 +1420,20 @@ async function syncApp() {
   if (changed) console.log(`已同步 ${changed} 个 App 文件到 GitHub Pages`);
 }
 
-// Writes the current tunnel address (encrypted) to url.json, so the app on GitHub Pages can find this relay.
+// Writes the encrypted relay address to urls/<computerId>.json, and still to root url.json for old phone Apps.
+// syncApp only uploads files from app/; it never deletes other computers' urls/*.json.
 async function publishUrl(url) {
-  try {
-    await syncApp();
-  } catch (e) {
-    console.log(`!! 同步 App 文件失败：${e.message}`);
-  }
+  try { await syncApp(); } catch (e) { console.log(`!! 同步 App 文件失败：${e.message}`); }
   if (!await waitReachable(url)) console.log('!! 新地址暂时无法从外网访问，仍然尝试发布');
   try {
+    const { id } = ensureComputer();
+    const body = Buffer.from(JSON.stringify(encryptUrl(url)) + '\n');
+    const perPath = `urls/${id}.json`;
+    await putFile(perPath, body, await remoteFileSha(perPath));
+    // Transition: keep root url.json for old phone Apps
     const remote = await remoteShas();
-    await putFile('url.json', Buffer.from(JSON.stringify(encryptUrl(url)) + '\n'), remote.get('url.json'));
-    console.log(`已发布最新地址（GitHub Pages 约 1 分钟后生效）。手机 App 固定地址：${appUrl()}`);
+    await putFile('url.json', body, remote.get('url.json'));
+    console.log(`已发布最新地址到 ${perPath}（Pages 约 1 分钟后生效）。手机 App：${appUrl()}`);
     offerFirstPairing();
   } catch (e) {
     console.log(`!! 发布地址失败：${e.message}`);
