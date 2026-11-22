@@ -22,15 +22,20 @@ function Find-Cursor {
 }
 
 if (-not $Worker) {
+  New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
   if (Test-Cdp) {
-    Write-Host "Port $Port already has a CDP endpoint. If that is not your main Cursor, quit it first (or set `$env:CDP_PORT to another port)."
-    exit 1
+    # Already good (common at login if another launcher won the race). Quiet success for Startup.
+    Add-Content -Path $Log -Value "$(Get-Date) CDP already open on $Port; nothing to do"
+    exit 0
   }
   $exe = Find-Cursor
-  if (-not $exe) { Write-Host 'Cursor.exe not found. Run it yourself: <Cursor install dir>\Cursor.exe --remote-debugging-port=9222'; exit 1 }
-  New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
+  if (-not $exe) {
+    Add-Content -Path $Log -Value "$(Get-Date) Cursor.exe not found"
+    Write-Host 'Cursor.exe not found. Run it yourself: <Cursor install dir>\Cursor.exe --remote-debugging-port=9222'
+    exit 1
+  }
   # Detached so it survives when launched from Cursor's own terminal, which dies with Cursor.
-  Set-Content -Path $Log -Value ''
+  Set-Content -Path $Log -Value "$(Get-Date) launching worker for $exe"
   Start-Process powershell -WindowStyle Hidden -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '-Worker')
   Write-Host "Cursor will quit and reopen with the debugging port (see $Log)"
   exit 0

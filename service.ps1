@@ -1,6 +1,6 @@
 ﻿# Run the public relay at Windows logon, and restart it if it exits.
 # Usage: powershell -ExecutionPolicy Bypass -File .\service.ps1 install | uninstall | start | stop | status | logs
-# `watch` is started by the logon task. It relaunches Cursor with the debugging port when Cursor is running without one (for example right after an update).
+# `watch` is started by the logon task. It relaunches Cursor with the debugging port when Cursor is running without one (for example right after an update), and also restarts the relay if it dies.
 param([Parameter(Position = 0)][string]$Command = 'help')
 $ErrorActionPreference = 'Stop'
 
@@ -46,6 +46,16 @@ function Test-RelayPort {
   } catch { $false }
 }
 
+function Wait-Network {
+  for ($i = 0; $i -lt 30; $i++) {
+    try {
+      $r = Resolve-DnsName 'cloudflare.com' -Type A -ErrorAction Stop
+      if ($r) { return }
+    } catch {}
+    Start-Sleep -Seconds 2
+  }
+}
+
 function Install-Relay {
   $node = Find-Exe 'node'
   $cloudflared = Find-Exe 'cloudflared'
@@ -62,22 +72,41 @@ function Install-Relay {
   $cfDirLit = $cloudflaredDir.Replace("'", "''")
   $svcLit = $PSCommandPath.Replace("'", "''")
 
+  # Keep the scheduled task process alive and restart the relay quickly after reboot / crash.
   @"
 `$ErrorActionPreference = 'Continue'
 `$env:PATH = '$nodeDirLit;$cfDirLit;' + `$env:PATH
 Set-Location -LiteralPath '$dirLit'
+function Test-LocalPort([int]`$p) {
+  try { `$c = New-Object System.Net.Sockets.TcpClient; `$c.Connect('127.0.0.1', `$p); `$c.Close(); `$true } catch { `$false }
+}
 `$watching = Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue |
   Where-Object { `$_.CommandLine -and `$_.CommandLine -match 'service\.ps1' -and `$_.CommandLine -match '\bwatch\b' }
 if (-not `$watching) {
   Start-Process -WindowStyle Hidden powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','$svcLit','watch'
 }
-& '$nodeLit' '$dirLit\server.mjs' --tunnel *>> '$logLit'
+# Boot may not have DNS yet; wait up to ~60s, then keep retrying the relay every 30s.
+for (`$i = 0; `$i -lt 30; `$i++) {
+  try { if (Resolve-DnsName 'cloudflare.com' -Type A -ErrorAction Stop) { break } } catch {}
+  Start-Sleep -Seconds 2
+}
+while (`$true) {
+  if (Test-LocalPort 3939) {
+    Start-Sleep -Seconds 30
+    continue
+  }
+  Add-Content -LiteralPath '$logLit' -Value ("``n" + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ' 启动中继…') -ErrorAction SilentlyContinue
+  & '$nodeLit' '$dirLit\server.mjs' --tunnel *>> '$logLit'
+  Add-Content -LiteralPath '$logLit' -Value ((Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + ' 中继退出，30 秒后重试') -ErrorAction SilentlyContinue
+  Start-Sleep -Seconds 30
+}
 "@ | Set-Content -LiteralPath $Launcher -Encoding UTF8
 
   $arg = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$Launcher`""
   $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arg
   $user = "$env:USERDOMAIN\$env:USERNAME"
   $trigger = New-ScheduledTaskTrigger -AtLogOn -User $user
+  # No extra Delay: start as soon as the user logs on.
   $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries `
@@ -90,15 +119,16 @@ if (-not `$watching) {
   Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null
 
   if ($env:CR_INSTALL_NO_START -eq '1') {
-    Write-Host '已更新登录自启（含调试端口检测）。这次没有启动。'
+    Write-Host '已更新登录自启（登录后更快拉起，中继约 30 秒重试）。这次没有启动。'
   } elseif (Test-RelayPort) {
-    Write-Host "已设为登录后自动启动。当前端口 $Port 已有服务在跑，这次没有重启它。"
-    Write-Host '下次登录会自动拉起。若要马上改由开机任务接管：先 stop，再 start。'
+    Write-Host "已更新登录自启。当前端口 $Port 已有服务在跑，这次没有重启它。"
+    Write-Host '下次登录会用新的快速重试逻辑。若要马上切换：先 stop，再 start。'
   } else {
     Start-ScheduledTask -TaskName $TaskName
     Write-Host '已设为登录后自动启动，并已在后台启动。'
   }
   Write-Host "日志：$Log"
+  Write-Host '目标：登录后约 1–2 分钟内中继可用，固定地址约再等 1 分钟；合计应在 5 分钟内。'
   Write-Host '查看状态：powershell -ExecutionPolicy Bypass -File .\service.ps1 status'
 }
 
@@ -129,6 +159,10 @@ function Stop-Relay {
   foreach ($w in @(Get-WatcherProcesses)) {
     Stop-Process -Id $w.ProcessId -Force -ErrorAction SilentlyContinue
   }
+  # Also stop the supervisor powershell that runs run-public.ps1, otherwise it will start the relay again.
+  Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -and $_.CommandLine -match 'run-public\.ps1' } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
   if ($procs.Count) { Write-Host "已停止 $($procs.Count) 个中继进程。" } else { Write-Host '当前没有在跑的中继。' }
 }
 
@@ -144,24 +178,58 @@ function Write-WatchLog([string]$msg) {
 }
 
 # Cursor updates relaunch the app without --remote-debugging-port. If Cursor is already open and the port stays down, quit and reopen it with the port.
+# Also poke the scheduled task if the relay port stays down after boot.
+# For ~3 minutes after watch starts, if Cursor is not running at all, start it with the debug port once (login assist).
 function Watch-Cursor {
   $ErrorActionPreference = 'Continue'
   $others = @(Get-WatcherProcesses | Where-Object { $_.ProcessId -ne $PID })
   if ($others.Count) { exit 0 }
   $startScript = Join-Path $Dir 'start-cursor.ps1'
-  $lastRestart = [datetime]::MinValue
+  $hidden = Join-Path $Dir 'run-hidden.vbs'
+  $startedAt = Get-Date
+  $bootLaunchDone = $false
+  $lastCursorRestart = [datetime]::MinValue
+  $lastRelayNudge = [datetime]::MinValue
+  $relayDownSince = $null
   Write-WatchLog '调试端口检测已启动'
   while ($true) {
-    Start-Sleep -Seconds 15
+    Start-Sleep -Seconds 10
+    if (-not (Test-RelayPort)) {
+      if (-not $relayDownSince) { $relayDownSince = Get-Date }
+      $downFor = ((Get-Date) - $relayDownSince).TotalSeconds
+      if ($downFor -ge 20 -and ((Get-Date) - $lastRelayNudge).TotalSeconds -ge 20) {
+        $lastRelayNudge = Get-Date
+        Write-WatchLog '中继未在监听，尝试启动任务'
+        try { Start-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue } catch {}
+      }
+    } else {
+      $relayDownSince = $null
+    }
     if (Test-CdpPort) { continue }
     $procs = @(Get-Process -Name Cursor -ErrorAction SilentlyContinue)
-    if (-not $procs.Count) { continue }
+    if (-not $procs.Count) {
+      # Login assist: start Cursor once if it never came up in the first few minutes.
+      if (-not $bootLaunchDone -and ((Get-Date) - $startedAt).TotalSeconds -ge 45 -and ((Get-Date) - $startedAt).TotalSeconds -lt 180) {
+        $bootLaunchDone = $true
+        Write-WatchLog '登录后未检测到 Cursor，正在后台启动（带调试端口）'
+        if (Test-Path -LiteralPath $hidden) {
+          Start-Process -FilePath 'wscript.exe' -ArgumentList "`"$hidden`" `"$startScript`"" -WindowStyle Hidden
+        } else {
+          Start-Process powershell -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File', $startScript
+        }
+      }
+      continue
+    }
     $oldest = $procs | Where-Object { $_.StartTime } | Sort-Object StartTime | Select-Object -First 1
-    if ($oldest -and ((Get-Date) - $oldest.StartTime).TotalSeconds -lt 30) { continue }
-    if (((Get-Date) - $lastRestart).TotalSeconds -lt 90) { continue }
-    $lastRestart = Get-Date
+    if ($oldest -and ((Get-Date) - $oldest.StartTime).TotalSeconds -lt 20) { continue }
+    if (((Get-Date) - $lastCursorRestart).TotalSeconds -lt 60) { continue }
+    $lastCursorRestart = Get-Date
     Write-WatchLog 'Cursor 在运行但没有调试端口，正在重新打开'
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $startScript
+    if (Test-Path -LiteralPath $hidden) {
+      Start-Process -FilePath 'wscript.exe' -ArgumentList "`"$hidden`" `"$startScript`"" -WindowStyle Hidden
+    } else {
+      & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $startScript
+    }
   }
 }
 

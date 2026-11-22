@@ -282,7 +282,8 @@ npm run pair
 
 - The computer can be locked and the display can turn off, but it must not sleep (see "Preventing sleep" above).
 - The relay starts on its own after you log on. Task Manager shows **node.exe** (`server.mjs --tunnel`) and **cloudflared.exe**. There is no process named CursorRemoteLite; that name is the scheduled task.
-- Autostart also watches Cursor. If the process is running but debugging port `9222` is still closed after about 30 seconds (typical right after Cursor updates and relaunches itself), it quits Cursor and reopens it with the debugging port. It does not launch Cursor when you have quit it completely. Unsaved files may prompt you to save.
+- **Target after reboot: usable within 5 minutes.** After logon it waits for DNS (up to about a minute), then restarts the relay about every 30 seconds if it exits. Publishing the fixed address to GitHub Pages takes roughly another minute. Together that should stay under five minutes.
+- Autostart also watches Cursor. If the process is running but debugging port `9222` is still closed after about 20 seconds (typical right after Cursor updates and relaunches itself), it quits Cursor and reopens it with the debugging port. If the relay port stays down, it nudges the scheduled task again. It does not launch Cursor when you have quit it completely. Unsaved files may prompt you to save.
 - On the phone, pick the right window at the top left and read replies under **Chat**. History only lists titles; open one to see that conversation.
 - If Cursor is already listening on the debugging port, `start-cursor.ps1` prints `Port 9222 already has a CDP endpoint`. That means the port is already open. Do not restart Cursor again.
 
