@@ -1,5 +1,5 @@
 // Caches the app shell so the installed app opens instantly; live data (url.json, urls/<id>.json, relay) always goes to the network.
-const CACHE = 'cursor-remote-v8';
+const CACHE = 'cursor-remote-v9';
 const SHELL = ['./', 'index.html', 'i18n.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 
 // A tunnel that restarts publishes a new address, so address files must never be

@@ -182,7 +182,9 @@
   #vBody .note.err { color: #f77; }
 
   /* gate (login / offline) */
-  #gate { position: fixed; inset: 0; z-index: 20; background: #1e1e1e; display: none; flex-direction: column; gap: 12px; padding: calc(60px + env(safe-area-inset-top)) 24px 24px; }
+  #gate { position: fixed; inset: 0; z-index: 20; background: #1e1e1e; display: none; flex-direction: column; gap: 12px; padding: calc(60px + env(safe-area-inset-top)) 24px 24px; overflow-y: auto; }
+  #gateList { display: flex; flex-direction: column; gap: 6px; }
+  #gateList .opt { margin-bottom: 0; }
   #gate.open { display: flex; }
   #gate h2 { margin: 0 0 6px; font-size: 20px; color: #eee; }
   #gate input { font-size: 16px; padding: 11px; }
@@ -274,6 +276,7 @@
 <div id="gate">
   <h2>Cursor Remote</h2>
   <div id="gateMsg"></div>
+  <div id="gateList" hidden></div>
   <input id="gateInput" autocapitalize="off" autocorrect="off" spellcheck="false">
   <button id="gateBtn" class="primary"></button>
   <a id="gateApp" class="primary-link" hidden>在 App 中打开</a>
@@ -321,8 +324,10 @@ function send(obj) {
 /* ---------- gate: pairing / 2FA / offline ---------- */
 let gateSubmit = null;
 let onRetry = null;
-function gate({ msg = '', err = false, input = null, retry = false, appLink = null, onRetry: retryFn = null } = {}) {
+let offlineRetry = null;
+function gate({ msg = '', err = false, input = null, retry = false, appLink = null, onRetry: retryFn = null, computers = false } = {}) {
   onRetry = retryFn;
+  offlineRetry = computers ? retryFn : null;
   $('gate').classList.add('open');
   $('gateMsg').textContent = msg;
   $('gateMsg').className = err ? 'err' : '';
@@ -343,11 +348,57 @@ function gate({ msg = '', err = false, input = null, retry = false, appLink = nu
   $('gateRetry').hidden = !retry;
   $('gateRetry').textContent = typeof retry === 'string' ? retry : '重试';
   $('gateInfo').textContent = info?.updated ? '电脑端地址更新于 ' + new Date(info.updated).toLocaleString() : '';
+  if (computers) renderGateComputers();
+  else clearGateComputers();
 }
 const ungate = () => $('gate').classList.remove('open');
 $('gateBtn').onclick = () => gateSubmit?.($('gateInput').value.trim());
 $('gateInput').onkeydown = e => { if (e.key === 'Enter') $('gateBtn').click(); };
+$('gateInput').addEventListener('focus', () => { if (offlineRetry) clearTimeout(retryTimer); });
+$('gateInput').addEventListener('blur', () => { if (offlineRetry && !authed) autoRetry(offlineRetry); });
 $('gateRetry').onclick = () => (onRetry || boot)();
+$('gateList').onclick = e => {
+  const b = e.target.closest('[data-act="gateSwitch"]');
+  if (!b) return;
+  clearTimeout(retryTimer);
+  const row = findComputer(b.dataset.id, b.dataset.key);
+  if (row) switchComputer(row);
+};
+
+function clearGateComputers() {
+  const list = $('gateList');
+  if (!list) return;
+  list.hidden = true;
+  list.innerHTML = '';
+}
+
+function renderGateComputers() {
+  const list = $('gateList');
+  if (!list || !globalThis.Computers) return;
+  const plan = Computers.offlineGatePlan(loadComputersState().computers);
+  list.hidden = !plan.rows.length;
+  list.innerHTML = plan.rows.map(c => {
+    const cached = cachedProbe(c);
+    const tag = cached ? `<span class="tag">${cached.online ? '在线' : '离线'}</span>` : '';
+    return `<button type="button" class="opt" data-act="gateSwitch" ${computerRef(c)}><span class="lbl">${esc(c.name || '电脑')}</span>${tag}</button>`;
+  }).join('');
+}
+
+// Saved computers stay on the offline screen, with paste-pair and Retry.
+function showOfflineGate(msg, retryFn) {
+  gate({
+    msg: msg + '\n\n在电脑上运行 npm run pair，用手机扫码；或者把链接复制过来粘贴到下面。',
+    err: true,
+    input: {
+      placeholder: '粘贴配对链接',
+      button: '配对',
+      submit: text => { clearTimeout(retryTimer); pastePair(text); },
+    },
+    retry: true,
+    onRetry: retryFn,
+    computers: true,
+  });
+}
 
 /* ---------- relay discovery & auth ---------- */
 const b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
@@ -425,7 +476,7 @@ async function resolvePairBase(keyText) {
   try {
     return await decryptUrlWithKey(keyText, published);
   } catch {
-    throw Object.assign(new Error('配对信息已失效（电脑端重置过），请重新配对'), { unpaired: true, stale: true });
+    throw Computers.pairDecryptError();
   }
 }
 
@@ -901,12 +952,7 @@ async function reprobeActive() {
   saveComputers(computers, result.online ? nextActive : store.get('activeId'), store.get('lastId'));
   if (!result.online) {
     autoRetry(reprobeActive);
-    return gate({
-      msg: '电脑不在线：可能关机、睡眠，或服务刚重启（新地址约 1 分钟后生效）。会自动重试…',
-      err: true,
-      retry: true,
-      onRetry: reprobeActive,
-    });
+    return showOfflineGate('电脑不在线：可能关机、睡眠，或服务刚重启（新地址约 1 分钟后生效）。会自动重试…', reprobeActive);
   }
   return activateComputer(result);
 }
@@ -961,7 +1007,10 @@ async function boot() {
   saveComputers(computers, store.get('activeId'), store.get('lastId'));
   if (!computers.length) return showUnpaired(results.some(r => r.removed) ? '这台设备已被移除，请重新配对' : '');
   const decision = Computers.pickOnline(uniqueOnline(results), store.get('lastId'));
-  if (decision.action === 'none') return gate({ msg: '没有电脑在线', err: true, retry: true });
+  if (Computers.shouldAutoRetry(decision.action)) {
+    autoRetry(boot);
+    return showOfflineGate('没有电脑在线', boot);
+  }
   if (decision.action === 'pick') return showComputerPicker(decision.online, decision.highlightId);
   return activateComputer(decision.online[0]);
 }
@@ -1060,7 +1109,10 @@ $('shade').onclick = () => {
   if (picking && !authed) gate({ msg: '选择电脑', retry: true });
   else if (managing && !authed && !$('gate').classList.contains('open')) {
     const n = globalThis.Computers ? loadComputersState().computers.length : 0;
-    if (n) gate({ msg: '没有电脑在线', err: true, retry: true });
+    if (n) {
+      autoRetry(boot);
+      showOfflineGate('没有电脑在线', boot);
+    }
     else showUnpaired();
   }
 };
@@ -1291,6 +1343,7 @@ async function removeComputerFlow(row) {
 }
 
 async function switchComputer(row) {
+  clearTimeout(retryTimer);
   if (isActiveComputer(row) && authed) { closeSheet(); return; }
   const keepCurrent = authed && !isActiveComputer(row);
   closeSheet();
@@ -1309,7 +1362,8 @@ async function switchComputer(row) {
   if (!result.online) {
     const offlineMsg = '电脑不在线：可能关机、睡眠，或服务刚重启（新地址约 1 分钟后生效）。会自动重试…';
     if (keepCurrent) return status(offlineMsg, false);
-    return gate({ msg: offlineMsg, err: true, retry: true, onRetry: () => switchComputer(row) });
+    autoRetry(() => switchComputer(row));
+    return showOfflineGate(offlineMsg, () => switchComputer(row));
   }
   if (ws) dropSocket();
   return activateComputer(result);

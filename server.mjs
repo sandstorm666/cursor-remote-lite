@@ -9,11 +9,12 @@ import { WebSocketServer } from 'ws';
 import qrcode from 'qrcode-terminal';
 import { workspaces, workspaceForTitle, fileSize, readFile, parseRef } from './files.mjs';
 import {
-  DATA_DIR, encryptUrl, createPairing, pairingValid, consumePairing, listDevices, addDevice, findDevice, updateDevice,
+  DATA_DIR, createPairing, pairingValid, consumePairing, listDevices, addDevice, findDevice, updateDevice,
   removeDevice, totpConfig, verifyTotp, needsTotp, saveState, appBase,
   ensureComputer, setComputerName, computerPublic, normalizeComputerName,
 } from './auth.mjs';
 import { pushPublicKey, openEventStream, closeEventStreams, addViewer, removeViewer, deliver, startWatcher } from './notify.mjs';
+import { addressFiles, republishKnownRelay } from './publish-address.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3939);
@@ -1350,10 +1351,21 @@ wss.on('connection', (ws, req) => {
 });
 
 // Until a first device exists, print a pairing QR so a fresh install works without extra commands.
-function offerFirstPairing() {
+// When a public relay address is already known, rewrite url.json with this computer's key first.
+async function offerFirstPairing({ republish = true } = {}) {
   if (listDevices().length) return;
   const base = appBase();
   if (!base) return;
+  if (republish) {
+    try {
+      const published = await republishKnownRelay({ onlyPublic: true });
+      if (published.published) {
+        console.log(`已用这台电脑的密钥重新发布地址到 ${published.paths[0]} 和 url.json（Pages 约 1 分钟后生效）。`);
+      }
+    } catch (e) {
+      console.log(`!! 重新发布地址失败：${e.message}`);
+    }
+  }
   const { link, minutes } = createPairing(base);
   printQr(`还没有配对的设备。用手机扫码完成配对（${minutes} 分钟内有效；过期后运行 npm run pair）`, link);
 }
@@ -1426,15 +1438,13 @@ async function publishUrl(url) {
   try { await syncApp(); } catch (e) { console.log(`!! 同步 App 文件失败：${e.message}`); }
   if (!await waitReachable(url)) console.log('!! 新地址暂时无法从外网访问，仍然尝试发布');
   try {
-    const { id } = ensureComputer();
-    const body = Buffer.from(JSON.stringify(encryptUrl(url)) + '\n');
-    const perPath = `urls/${id}.json`;
-    await putFile(perPath, body, await remoteFileSha(perPath));
-    // Transition: keep root url.json for old phone Apps
+    const { body, paths } = addressFiles(url);
+    await putFile(paths[0], body, await remoteFileSha(paths[0]));
+    // Transition: keep root url.json for old phone Apps. Same ciphertext as urls/<id>.json.
     const remote = await remoteShas();
-    await putFile('url.json', body, remote.get('url.json'));
-    console.log(`已发布最新地址到 ${perPath}（Pages 约 1 分钟后生效）。手机 App：${appUrl()}`);
-    offerFirstPairing();
+    await putFile(paths[1], body, remote.get('url.json'));
+    console.log(`已发布最新地址到 ${paths[0]}（Pages 约 1 分钟后生效）。手机 App：${appUrl()}`);
+    await offerFirstPairing({ republish: false });
   } catch (e) {
     console.log(`!! 发布地址失败：${e.message}`);
   }
@@ -1452,7 +1462,7 @@ function startTunnel() {
       if (PUBLISH_REPO) publishUrl(m[0]);
       else {
         console.log('（每次重启地址都会变，配对过的手机需要重新配对；运行 npm run setup 可获得固定地址）');
-        offerFirstPairing();
+        void offerFirstPairing();
       }
     }
   };
@@ -1488,7 +1498,7 @@ server.listen(PORT, TUNNEL ? '127.0.0.1' : HOST, async () => {
     for (const ip of ips) console.log(`  局域网地址：http://${ip}:${PORT}/`);
     if (ips[0]) {
       saveState({ relayUrl: `http://${ips[0]}:${PORT}/` });
-      offerFirstPairing();
+      await offerFirstPairing();
     }
   }
 });

@@ -3,6 +3,7 @@
 // npm run devices remove <id>
 import qrcode from 'qrcode-terminal';
 import { createPairing, appBase, listDevices, removeDevice, totpConfig } from './auth.mjs';
+import { republishKnownRelay } from './publish-address.mjs';
 
 const [cmd = 'list', arg] = process.argv.slice(2);
 const fmt = t => t ? new Date(t).toLocaleString('zh-CN', { hour12: false }) : '-';
@@ -12,6 +13,16 @@ if (cmd === 'pair') {
   if (!base) {
     console.log('还不知道手机 App 的地址：先运行 npm run setup 设置固定地址，或先启动服务（npm run public / npm start）。');
     process.exit(1);
+  }
+  try {
+    const published = await republishKnownRelay();
+    if (published.published) {
+      console.log(`已用这台电脑的密钥重新发布地址到 ${published.paths[0]} 和 url.json（Pages 约 1 分钟后生效）。`);
+    } else if (published.reason === 'no-relay') {
+      console.log('还没有保存这台电脑的地址，未改写 url.json。若手机提示地址被覆盖，请先运行 npm run public。');
+    }
+  } catch (e) {
+    console.log(`!! 重新发布地址失败：${e.message}`);
   }
   const { link, minutes } = createPairing(base);
   console.log(`\n用手机扫码，或把下面的链接发到手机上打开（${minutes} 分钟内有效，只能配对一台设备）：\n`);

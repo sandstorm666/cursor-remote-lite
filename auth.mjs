@@ -43,6 +43,7 @@ export function encryptUrl(url) {
 /* ---------- pairing ---------- */
 
 // The link carries the url key and a one-time code in the #fragment, which browsers never send to any server.
+// npm run pair and offerFirstPairing republish url.json with this key first when a relay address is already known.
 export function createPairing(appBase) {
   const code = crypto.randomBytes(16).toString('base64url');
   writeJson('pairing.json', { hash: sha256(code), expires: Date.now() + PAIR_TTL });

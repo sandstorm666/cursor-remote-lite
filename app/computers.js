@@ -100,6 +100,34 @@ export function urlPathFor(computer) {
   return computer?.id ? `urls/${computer.id}.json` : 'url.json';
 }
 
+// Decrypting root url.json with a new computer's key fails when another
+// computer published that file last. That is not a reset of this computer.
+export function pairDecryptError() {
+  return Object.assign(
+    new Error('电脑端地址可能被另一台电脑覆盖了，请在这台电脑上再运行一次 npm run public（或重新 pair）后再试。'),
+    { overwritten: true, stale: false, unpaired: false },
+  );
+}
+
+// The offline gate lists saved computers and still offers paste-pair and Retry.
+export function offlineGatePlan(computers) {
+  const list = Array.isArray(computers) ? computers : [];
+  return {
+    rows: list.map(c => ({
+      id: c?.id ?? null,
+      key: c?.key || '',
+      name: cleanName(c?.name) || DEFAULT_NAME,
+    })),
+    paste: true,
+    retry: true,
+  };
+}
+
+// Zero computers online keeps retrying. One-or-more online connects or asks.
+export function shouldAutoRetry(action) {
+  return action === 'none';
+}
+
 // Turns probe results into a boot decision: nothing reachable, exactly one
 // (auto-connect), or several (must pick — lastId only pre-highlights).
 export function pickOnline(results, lastId) {
@@ -113,7 +141,7 @@ export function pickOnline(results, lastId) {
 if (typeof globalThis !== 'undefined') {
   globalThis.Computers = {
     migrateComputers, upsertComputer, removeComputer, renameComputer, urlPathFor, pickOnline,
-    addComputerKeepingSession,
+    addComputerKeepingSession, pairDecryptError, offlineGatePlan, shouldAutoRetry,
   };
   // Classic inline script runs before this deferred module. It listens for
   // this event and only then calls boot(). Node has no dispatchEvent.

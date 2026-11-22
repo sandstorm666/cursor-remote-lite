@@ -13,6 +13,7 @@ const I18N = (() => {
     '未连接': 'Not connected', '已连接': 'Connected', '断开，重连中…': 'Disconnected, reconnecting…', '已发送': 'Sent',
     '电脑端还没有发布地址（或还在用旧版本），请在电脑上重启服务': 'The computer has not published its address yet (or runs an old version). Restart the service on the computer.',
     '配对信息已失效（电脑端重置过），请重新配对': 'Pairing is no longer valid (the computer was reset). Please pair again.',
+    '电脑端地址可能被另一台电脑覆盖了，请在这台电脑上再运行一次 npm run public（或重新 pair）后再试。': 'This computer\'s address may have been overwritten by another computer. Run npm run public on this computer again (or pair again), then try once more.',
     '这台设备还没有配对。': 'This device is not paired yet.',
     '在电脑上运行 npm run pair，用手机扫码；或者把链接复制过来粘贴到下面。': 'Run npm run pair on the computer and scan the code, or paste the pairing link below.',
     '粘贴配对链接': 'Paste pairing link', '配对': 'Pair', '验证': 'Verify', '这不是配对链接（应包含 #pair=…）': 'That is not a pairing link (it should contain #pair=…)',
