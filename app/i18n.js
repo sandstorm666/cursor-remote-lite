@@ -21,7 +21,11 @@ const I18N = (() => {
     '配对失败': 'Pairing failed', '这台设备之前已经配对过，可以继续使用。': 'This device was paired before and can keep using it.', '继续使用': 'Continue',
     '正在验证…': 'Verifying…', '验证失败': 'Verification failed', '连不上电脑': 'Cannot reach the computer',
     '已收到配对链接。': 'Pairing link received.', '装了安卓 App 就在 App 里打开；否则直接在浏览器里用。': 'Open it in the Android app if installed; otherwise use it in the browser.',
-    '在浏览器里继续': 'Continue in browser', '正在查找电脑…': 'Looking for the computer…', '读取失败，请检查手机网络（需要能打开 github.io）': 'Could not load. Check your phone\'s network (github.io must be reachable).',
+    '在浏览器里继续': 'Continue in browser', '正在查找电脑…': 'Looking for the computer…',
+    '没有电脑在线': 'No computers online', '选择电脑': 'Choose a computer', '电脑': 'Computer',
+    '添加电脑': 'Add a computer', '重命名': 'Rename', '移除这台电脑': 'Remove this computer', '上次使用': 'Last used',
+    '在线': 'Online', '离线': 'Offline', '名称无效': 'Invalid name', '已改名': 'Renamed', '已添加': 'Added', '返回': 'Back',
+    '读取失败，请检查手机网络（需要能打开 github.io）': 'Could not load. Check your phone\'s network (github.io must be reachable).',
     '还没有找到电脑地址。': 'The computer\'s address isn\'t published yet.', '请在电脑上运行 npm run public 并保持窗口开着，约 1 分钟后点重试。': 'Run npm run public on the computer and keep that window open, then tap Retry in about a minute.',
     '电脑不在线：可能关机、睡眠，或服务刚重启（新地址约 1 分钟后生效）。会自动重试…': 'Computer offline: it may be off, asleep, or the service just restarted (a new address takes about a minute). Retrying automatically…',
     '这台设备已被移除，请重新配对': 'This device was removed. Please pair again.',
@@ -110,6 +114,9 @@ const I18N = (() => {
 
   // Strings with a variable part.
   const PATTERNS = [
+    [/^已连接 · (.+)$/, 'Connected · $1'],
+    [/^菜单 · (.+)$/, 'Menu · $1'],
+    [/^移除「(.+)」？这台手机会从这台电脑取消配对，之后要重新运行 npm run pair 才能再用。$/, 'Remove "$1"? This phone will be unpaired from that computer and needs npm run pair again.'],
     [/^电脑端地址更新于 (.+)$/, 'Computer address updated $1'],
     [/^配对于 (.+) · 最近使用 (.+)$/, 'Paired $1 · last used $2'],
     [/^更新安卓 App（v(.+) → v(.+)）$/, 'Update the Android app (v$1 → v$2)'],
