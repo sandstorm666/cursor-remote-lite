@@ -129,7 +129,7 @@ npm run setup        # create the phone app repo, enable start at login, optiona
 ./start-cursor.sh    # restart Cursor with the debugging port (quits the current Cursor first)
 ```
 
-`npm run setup` creates a public repository under **your own** GitHub account (named `cursor-remote-app` by default) and uses GitHub Pages to host the phone app and your computer's encrypted address. Everyone uses their own; it has nothing to do with the author or other users.
+`npm run setup` creates a public repository under **your own** GitHub account (named `cursor-remote-app` by default) and uses GitHub Pages to host the phone app and your computer's encrypted address. Everyone uses their own; it has nothing to do with the author or other users. A home and an office computer can share one repo — see "Two computers" below.
 
 **Step 2: Pair your phone**
 
@@ -344,6 +344,41 @@ Use the new link. The relay has to be running while you pair. The `stop` above i
 | `…\service.ps1 status / logs / start / stop / uninstall` | Windows status, start, stop, remove autostart |
 | `stop-autostart.bat` | Windows: stop the relay and remove logon autostart in one step |
 | `npm run reset` | Clear all pairings, 2FA and configuration (you'll need to pair again afterwards) |
+
+## Two computers (home + office)
+
+One GitHub Pages repo can serve more than one computer: point both at the same `publishRepo` and each publishes its encrypted address to `urls/<computerId>.json`, so neither overwrites the other. The phone keeps both in its list and you pick which one to use.
+
+**1. Run `npm run setup` on both computers, with the same repo name**
+
+On the second computer, enter the repo the first one already created (e.g. `cursor-remote-app`). An existing repo is not recreated and the other computer's published `urls/*.json` files are never deleted; this version's app files are simply written on top (`index.html` in the wizard, the rest when the service starts).
+
+**2. Give each computer a name**
+
+The wizard asks for "this computer's display name" (the hostname by default), e.g. `Home` and `Office`. You can change it later from the phone (step 4); nothing to do on the computer.
+
+**3. Pair both computers with the phone**
+
+Run `npm run pair` once on each computer and scan with the phone. For the second one you can paste the pairing link into "⋯ → Computers → Add computer"; the session you already have to the first computer stays connected.
+
+Pairing links resolve through `url.json` in the repo root, so **run `npm run pair` on the computer you want to pair** — don't reuse an old link for the other one.
+
+**4. Day to day**
+
+| Situation | What the phone does |
+|---|---|
+| Only one online | Connects to it directly, no picker |
+| Both online | Shows "Choose computer"; the last used one is highlighted and marked "Last used" |
+| Both offline | Shows "No computer online" with a Retry button; the list is under "⋯ → Computers" |
+
+"⋯ → Computers" lists every computer with its online/offline state and which one you're on:
+
+- Tap a name to switch (an offline computer shows a message and does not drop your current connection)
+- **Rename**: applies on the phone immediately; synced to that computer when it is online (`/api/computer/name`) or on the next successful connect
+- **Remove**: unpairs this phone from that computer only (it also disappears from that computer's device list); the other computer is unaffected
+- **Add computer**: paste the pairing link for a second or third computer
+
+A changed tunnel address does not need re-pairing: each computer republishes its own `urls/<computerId>.json` on restart and the phone reads it on the next connect.
 
 ## FAQ
 
