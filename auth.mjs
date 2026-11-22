@@ -4,7 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-export const DATA_DIR = path.join(os.homedir(), '.cursor-remote-lite');
+// The env override lets tests run against a throwaway folder instead of the user's real ~/.cursor-remote-lite.
+export const DATA_DIR = process.env.CURSOR_REMOTE_LITE_DIR || path.join(os.homedir(), '.cursor-remote-lite');
 const PAIR_TTL = 10 * 60 * 1000;
 
 const file = name => path.join(DATA_DIR, name);
@@ -165,6 +166,46 @@ export function needsTotp(device) {
 export const saveState = state => writeJson('state.json', { ...readJson('state.json', {}), ...state });
 export const readState = () => readJson('state.json', {});
 export const readConfig = () => readJson('config.json', {});
+
+/* ---------- computer identity ---------- */
+
+// Home PC and office PC each publish under their own id, so the phone can switch between them.
+const COMPUTER_NAME_MAX = 40;
+
+export function normalizeComputerName(name) {
+  const s = String(name ?? '').trim().slice(0, COMPUTER_NAME_MAX);
+  return s || null;
+}
+
+// Stable id: 16 random bytes as base64url (22 chars). Generated once, then it identifies this computer forever.
+export function ensureComputer() {
+  const cfg = readConfig();
+  let changed = false;
+  if (typeof cfg.computerId !== 'string' || !cfg.computerId) {
+    cfg.computerId = crypto.randomBytes(16).toString('base64url');
+    changed = true;
+  }
+  const name = normalizeComputerName(cfg.computerName);
+  if (name) {
+    if (name !== cfg.computerName) { cfg.computerName = name; changed = true; }
+  } else {
+    cfg.computerName = normalizeComputerName(os.hostname()) || 'Computer';
+    changed = true;
+  }
+  if (changed) writeJson('config.json', cfg);
+  return { id: cfg.computerId, name: cfg.computerName };
+}
+
+// Returns null for an unusable name so callers can answer 400 rather than silently storing junk.
+export function setComputerName(name) {
+  const n = normalizeComputerName(name);
+  if (!n) return null;
+  const { id } = ensureComputer();
+  writeJson('config.json', { ...readConfig(), computerId: id, computerName: n });
+  return { id, name: n };
+}
+
+export const computerPublic = () => ensureComputer();
 
 // Where the phone app lives: the GitHub Pages copy if configured, else the relay itself.
 export function appBase() {
