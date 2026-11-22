@@ -82,7 +82,7 @@ public class MainActivity extends Activity {
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest req) {
                 Uri u = req.getUrl();
                 if ("file".equals(u.getScheme()) || sameOrigin(u, appUrl())) return false;
-                // Donate links etc. open in the system browser; the bridge is only exposed to the app's own pages.
+                // Off-site links open in the system browser; the bridge is only exposed to the app's own pages.
                 try { startActivity(new Intent(Intent.ACTION_VIEW, u)); } catch (Exception ignored) {}
                 return true;
             }

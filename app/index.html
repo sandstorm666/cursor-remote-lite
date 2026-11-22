@@ -152,9 +152,6 @@
   .pRow button { padding: 8px 12px; font-size: 13.5px; }
   .pRow button.on { border-color: #1177bb; background: #0e639c; color: #fff; }
   .hint { font-size: 13px; color: #999; margin: 4px 4px 10px; line-height: 1.6; }
-  .qrs { display: flex; gap: 10px; margin: 4px 0 10px; }
-  .qrs figure { flex: 1; min-width: 0; margin: 0; text-align: center; font-size: 13px; color: #aaa; }
-  .qrs img { display: block; width: 100%; border-radius: 10px; margin-bottom: 4px; }
   a.opt { color: #e6e6e6; text-decoration: none; background: #2d2d2d; border: 1px solid #3c3c3c; border-radius: 8px; box-sizing: border-box; }
 
   /* file links + viewer */
@@ -660,9 +657,6 @@ let installEvent = null;
 window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvent = e; });
 const standalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone;
 
-let donate = null;
-fetch('donate.json').then(r => r.ok ? r.json() : null).then(d => { if (d?.qr?.length || d?.links?.length) donate = d; }).catch(() => {});
-
 async function showDevices() {
   let list = [];
   try { list = (await api('/api/devices').then(r => r.json())).devices || []; } catch {}
@@ -671,15 +665,6 @@ async function showDevices() {
     <div class="opt ${d.current ? 'cur' : ''}"><span class="lbl">${esc(d.name)}<span class="sub">配对于 ${when(d.created)} · 最近使用 ${when(d.lastSeen)}</span></span>
     ${d.current ? '' : `<button data-remove="${esc(d.id)}" data-name="${esc(d.name)}">移除</button>`}</div>`).join('')
     + '<div class="hint">添加新设备：在电脑上运行 npm run pair。<br>开启 Authenticator 二次验证：npm run 2fa。</div>');
-}
-
-function showDonate() {
-  const links = (donate.links || []).filter(l => /^https:\/\//.test(l.url));
-  openSheet('donate', `<h3>赞赏作者 ☕</h3>
-    <div class="hint">觉得好用的话，可以请作者喝杯咖啡。完全自愿，感谢支持！</div>
-    <div class="qrs">${(donate.qr || []).map(q => `<figure><img src="${esc(q.image)}" alt="${esc(q.label)}"><figcaption>${esc(q.label)}</figcaption></figure>`).join('')}</div>
-    ${links.map(l => `<a class="opt" href="${esc(l.url)}" target="_blank" rel="noopener"><span class="lbl">${esc(l.label)}</span><span class="tag">海外</span></a>`).join('')}
-    <div class="hint">手机上可以长按二维码保存，再用微信 / 支付宝「扫一扫」从相册识别。</div>`);
 }
 
 function showMainMenu() {
@@ -699,8 +684,7 @@ function showMainMenu() {
     <button class="opt" data-act="voice"><span class="lbl">语音按钮<span class="sub">输入法键盘自带麦克风的话用不着</span></span><span class="switch ${store.get('voice') === 'on' ? 'on' : ''}"></span></button>
     <button class="opt" data-act="lang"><span class="lbl">语言 / Language</span><span class="tag">${I18N.lang === 'en' ? 'English' : '中文'}</span></button>
     <button class="opt" data-act="devices"><span class="lbl">已配对设备</span></button>
-    <button class="opt" data-act="logout"><span class="lbl">取消本机配对</span></button>
-    ${donate ? '<button class="opt" data-act="donate"><span class="lbl">赞赏作者 ☕</span></button>' : ''}`);
+    <button class="opt" data-act="logout"><span class="lbl">取消本机配对</span></button>`);
 }
 $('menuBtn').onclick = showMainMenu;
 
@@ -870,7 +854,6 @@ $('sheet').addEventListener('click', async e => {
     else { await checkAppUpdate(true); if (apkUpdate()) showMainMenu(); }
   }
   else if (act === 'reconnect') { closeSheet(); ws?.close(); }
-  else if (act === 'donate') showDonate();
   else if (act === 'lang') openSheet('lang', '<h3>语言 / Language</h3>'
     + `<button class="opt ${I18N.lang === 'zh' ? 'cur' : ''}" data-act="setLang" data-v="zh"><span class="lbl">中文</span></button>`
     + `<button class="opt ${I18N.lang === 'en' ? 'cur' : ''}" data-act="setLang" data-v="en"><span class="lbl">English</span></button>`);

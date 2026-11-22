@@ -32,8 +32,6 @@ const I18N = (() => {
     '：开': ': on', '：关': ': off',
     '已配对设备': 'Paired devices', '移除': 'Remove', '添加新设备：在电脑上运行 npm run pair。': 'Add a device: run npm run pair on the computer.',
     '开启 Authenticator 二次验证：npm run 2fa。': 'Turn on Authenticator 2FA: npm run 2fa.',
-    '赞赏作者 ☕': 'Support the author ☕', '觉得好用的话，可以请作者喝杯咖啡。完全自愿，感谢支持！': 'If you find it useful, you can buy the author a coffee. Entirely optional — thank you!',
-    '海外': 'Intl', '手机上可以长按二维码保存，再用微信 / 支付宝「扫一扫」从相册识别。': 'Long-press a QR code to save it, then scan it from your photos in WeChat / Alipay.',
     '通知：已开启': 'Notifications: on', 'Agent 完成或等你确认时提醒': 'Alerts when the Agent finishes or needs your OK', '关闭': 'Turn off',
     '发一条测试通知': 'Send a test notification', '开启通知': 'Turn on notifications', '新': 'New', '菜单': 'Menu',
     '更换 App 地址': 'Change app address', '安装到手机桌面（像 App 一样打开）': 'Add to home screen (opens like an app)', '重新连接': 'Reconnect',
