@@ -15,7 +15,17 @@ const isMac = process.platform === 'darwin';
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 const ask = async (q, def = '') => (await rl.question(def ? `${q} [${def}] ` : `${q} `)).trim() || def;
 const yes = async (q, def = 'y') => /^y/i.test(await ask(`${q} (y/n)`, def));
-const has = cmd => spawnSync('sh', ['-c', `command -v ${cmd}`]).status === 0;
+// Windows: `sh`/`command -v` is unreliable; also refresh PATH so a terminal opened
+// before installing cloudflared/gh still sees them.
+if (process.platform === 'win32') {
+  const refreshed = spawnSync('powershell.exe', ['-NoProfile', '-Command',
+    '[Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User")'],
+  { encoding: 'utf8', windowsHide: true });
+  if (refreshed.status === 0 && refreshed.stdout.trim()) process.env.Path = refreshed.stdout.trim();
+}
+const has = cmd => process.platform === 'win32'
+  ? spawnSync('where.exe', [cmd], { encoding: 'utf8', windowsHide: true }).status === 0
+  : spawnSync('sh', ['-c', `command -v ${cmd}`]).status === 0;
 const run = (cmd, args, opts = {}) => spawnSync(cmd, args, { encoding: 'utf8', ...opts });
 // readline keeps the TTY in raw mode even when paused; child prompts need cooked mode to see Enter.
 const interactive = (cmd, args) => {
