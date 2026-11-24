@@ -87,7 +87,7 @@ So this project provides both: an Android app that installs without Google servi
 - **Screen mode**: a live view of either just the chat panel or the whole window. Taps, scrolling, zooming and common keys are all sent to the computer.
 - **Notifications**: when an Agent finishes, or stops waiting for you to tap "Run / Allow", your phone gets a notification; tap it to jump straight to that window. All windows trigger alerts, except the one you're currently viewing on your phone.
 - **Multiple windows**: tap the window name in the top-left to switch windows, including SSH remote windows and the Agents window.
-- **Modes / models / chat history**: switch between Agent / Plan / Ask, change models, open past conversations and start new ones, right from your phone.
+- **Modes / models / chats**: switch between Agent / Plan / Ask, change models, switch open chat tabs or open past conversations, and start new ones, right from your phone.
 - **Model parameters**: tap "Parameters" in the model list to adjust context length (e.g. 300K / 1M), reasoning effort (Low → Max) and the Fast toggle; there's also a MAX Mode toggle at the top. Which options are available depends on what Cursor offers for that model.
 - **Answer the Agent's questions**: when the Agent asks you something through its question prompt (multiple choice, several questions, or a free-text answer), a "The Agent is asking you" card appears on your phone; tap an option or write your own answer and submit, or skip. The notification shows the question itself.
 - **Queued messages**: messages sent while the Agent is running go into Cursor's queue. Your phone shows "Agent is running" plus each queued message, which you can edit, send immediately (interrupting the current turn) or delete. You can also stop the Agent with one tap.
@@ -152,7 +152,7 @@ If you can't scan it, send the link shown below the QR code to your phone and op
 **Step 4: Start using it**
 
 - The top-left shows the current window; tap it to switch windows (local / SSH / Agents).
-- Send messages from the input box at the bottom; use `Agent ▾` / `Auto ▾` to switch mode and model; "History" opens earlier conversations and "＋ New" starts a new one.
+- Send messages from the input box at the bottom; use `Agent ▾` / `Auto ▾` to switch mode and model; "Chats" lists open chat tabs in the current window for one-tap switching, "All history…" opens earlier conversations, and "＋ New" starts a new one.
 - When the Agent is waiting for your approval (running a command, accepting changes), the buttons show up right in the conversation.
 - Tap a blue file name or a card marked 📄 to preview a file; press Back to close it.
 - "Screen" in the top-right switches to the live view, where you can tap anything in the Cursor UI.
@@ -284,7 +284,7 @@ npm run pair
 - The relay starts on its own after you log on. Task Manager shows **node.exe** (`server.mjs --tunnel`) and **cloudflared.exe**. There is no process named CursorRemoteLite; that name is the scheduled task.
 - **Target after reboot: usable within 5 minutes.** After logon it waits for DNS (up to about a minute), then restarts the relay about every 30 seconds if it exits. Publishing the fixed address to GitHub Pages takes roughly another minute. Together that should stay under five minutes.
 - Autostart also watches Cursor. If the process is running but debugging port `9222` is still closed after about 20 seconds (typical right after Cursor updates and relaunches itself), it quits Cursor and reopens it with the debugging port. If the relay port stays down, it nudges the scheduled task again. It does not launch Cursor when you have quit it completely. Unsaved files may prompt you to save.
-- On the phone, pick the right window at the top left and read replies under **Chat**. History only lists titles; open one to see that conversation.
+- On the phone, pick the right window at the top left and read replies under **Chat**. The bottom **Chats** control switches open chat tabs in the current window; **All history…** only lists titles — open one to see that conversation.
 - If Cursor is already listening on the debugging port, `start-cursor.ps1` prints `Port 9222 already has a CDP endpoint`. That means the port is already open. Do not restart Cursor again.
 
 ### Status and stopping

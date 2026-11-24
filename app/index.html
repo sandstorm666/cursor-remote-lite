@@ -248,7 +248,7 @@
   <div id="chatTools">
     <button id="pickMode" hidden></button>
     <button id="pickModel" hidden></button>
-    <button id="pickHistory">历史</button>
+    <button id="pickHistory">对话</button>
     <button id="newChat">＋ 新建</button>
   </div>
   <div class="row">
@@ -1080,7 +1080,8 @@ function connect() {
       $('titleText').textContent = winLabel(m.title).name;
       send({ t: 'windows' });
     }
-    else if (m.t === 'menu') showMenu(m.kind, m.items, m.max);
+    else if (m.t === 'menu') showMenu(m.kind, m.items, m.max, m.error);
+    else if (m.t === 'chats') showChats(m.items || []);
     else if (m.t === 'params') showParams(m);
     else if (m.t === 'changes') showChanges(m);
     else if (m.t === 'file') showFile(m);
@@ -1150,8 +1151,12 @@ function showWindows() {
 $('title').onclick = () => { send({ t: 'windows' }); showWindows(); };
 
 const MENU_TITLE = { mode: '选择模式', model: '选择模型', history: '历史对话' };
-function showMenu(kind, items, max) {
-  if (!items.length) return status('菜单是空的，可能 Cursor 版本不同', false);
+function showMenu(kind, items, max, error) {
+  if (!items.length) {
+    return status(error || (kind === 'history'
+      ? '这个 Cursor 版本读不到历史菜单，可先用「对话」里打开中的标签，或切到「画面」手动打开'
+      : '菜单是空的，可能 Cursor 版本不同'), false);
+  }
   status('');
   const maxRow = typeof max === 'boolean'
     ? `<button class="opt" data-max><span class="lbl">MAX Mode<span class="sub">更大上下文、更贵</span></span><span class="switch ${max ? 'on' : ''}"></span></button>` : '';
@@ -1159,6 +1164,17 @@ function showMenu(kind, items, max) {
     const pick = `<button class="opt ${it.checked ? 'cur' : ''}" data-kind="${kind}" data-label="${esc(it.label)}"><span class="lbl">${esc(it.label)}</span></button>`;
     return it.params ? `<div class="optRow">${pick}<button class="paramBtn" data-params="${esc(it.id)}" data-plabel="${esc(it.label)}">参数</button></div>` : pick;
   }).join(''));
+}
+
+function showChats(items) {
+  status('');
+  const rows = items.length
+    ? items.map(it => `<button class="opt ${it.active ? 'cur' : ''}" data-act="switchChat" data-label="${esc(it.label)}"><span class="lbl">${esc(it.title || it.label)}</span></button>`).join('')
+    : '<div class="hint">当前窗口没有打开的聊天标签</div>';
+  openSheet('chats', `<h3>对话</h3>
+    <div class="pSec">打开中</div>
+    ${rows}
+    <button class="opt" data-act="openAllHistory"><span class="lbl">全部历史…</span></button>`);
 }
 
 function showChanges(m) {
@@ -1576,6 +1592,15 @@ $('sheet').addEventListener('click', async e => {
   else if (act === 'computers') showComputersMenu();
   else if (act === 'addComputer') showAddComputer();
   else if (act === 'retryProbe') { closeSheet(); boot(); }
+  else if (act === 'switchChat') {
+    closeSheet();
+    status('切换中…');
+    send({ t: 'switchChat', label: b.dataset.label });
+  }
+  else if (act === 'openAllHistory') {
+    status('读取历史对话…');
+    send({ t: 'openMenu', kind: 'history' });
+  }
   else if (act === 'switchComputer') {
     const row = findComputer(b.dataset.id, b.dataset.key);
     if (row) await switchComputer(row);
@@ -1813,7 +1838,7 @@ document.addEventListener('click', async e => {
 
 $('pickMode').onclick = () => { status('读取模式列表…'); send({ t: 'openMenu', kind: 'mode' }); };
 $('pickModel').onclick = () => { status('读取模型列表…'); send({ t: 'openMenu', kind: 'model' }); };
-$('pickHistory').onclick = () => { status('读取历史对话…'); send({ t: 'openMenu', kind: 'history' }); };
+$('pickHistory').onclick = () => { status('读取打开的对话…'); send({ t: 'listChats' }); };
 $('newChat').onclick = () => { send({ t: 'newChat' }); status('已新建对话'); };
 
 /* ---------- file viewer ---------- */

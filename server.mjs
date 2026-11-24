@@ -322,6 +322,13 @@ function pageHelpers() {
     const t = [...document.querySelectorAll('.tab')].find(e => vis(e) && e.getAttribute('aria-label') === label);
     return t ? center(t) : null;
   };
+  // Open Chat Editors tabs in this window (editor group tabs, not the Agents sidebar).
+  const chatTabs = () => [...document.querySelectorAll('.tab')].filter(e => vis(e) && /Chat Editors/.test(e.getAttribute('aria-label') || '')).map(e => {
+    const label = e.getAttribute('aria-label') || '';
+    const text = (e.innerText || '').trim().split('\n')[0].trim();
+    const title = (text || label.replace(/,?\s*Chat Editors:.*$/i, '').trim() || label).slice(0, 80);
+    return { label, title, active: e.classList.contains('active') };
+  });
   const hasComposer = () => [...document.querySelectorAll('.aislash-editor-input[contenteditable="true"], .ui-prompt-input-editor__input[contenteditable="true"]')].some(vis);
 
   // The Agent's ask-question tool renders as a toolbar above the composer, outside the message list.
@@ -447,7 +454,9 @@ function pageHelpers() {
   const CONTROLS = {
     mode: () => [...document.querySelectorAll('.composer-unified-dropdown[data-mode]')].find(vis),
     model: () => [...document.querySelectorAll('.ui-model-picker__trigger, .composer-unified-dropdown-model')].find(vis),
-    history: () => [...document.querySelectorAll('[aria-label^="Show Chat History"], [aria-label^="Show Agent History"]')].find(vis),
+    history: () => [...document.querySelectorAll(
+      '[aria-label^="Show Chat History"], [aria-label^="Show Agent History"], [aria-label^="Open Chat History"], [aria-label^="Open Agent History"], a.codicon-history-two, a.codicon-history'
+    )].find(vis),
     newChat: () => [...document.querySelectorAll('[aria-label^="New Agent"], [aria-label^="New Chat"]')].find(vis),
   };
 
@@ -465,6 +474,16 @@ function pageHelpers() {
     mode: () => [...document.querySelectorAll('.composer-unified-context-menu-item')].map(e => ({ el: e, label: e.innerText.trim().split('\n')[0], checked: !!e.querySelector('.codicon-check') })),
     model: () => [...document.querySelectorAll('.ui-menu__row')].filter(e => e.querySelector('.ui-model-picker__item-content-name')).map(e => ({ el: e, id: e.dataset.testid, params: !!e.querySelector('[data-testid=parameter-edit-btn]'), label: e.querySelector('.ui-model-picker__item-content-name').innerText.trim(), checked: !!e.querySelector('.codicon-check, .ui-model-picker__item-right-section [class*=check]') })),
     history: () => {
+      // Current Cursor: Agent history listbox (search-menu-list) with role=option rows.
+      const options = [...document.querySelectorAll(
+        '[data-component="search-menu-list"][role="listbox"] [role="option"], [role="listbox"][aria-label="Agent history"] [role="option"], [role="listbox"][aria-label="Chat history"] [role="option"]'
+      )].filter(vis).map(e => {
+        const labelEl = e.querySelector('.compact-agent-history-react-menu-label, .ui-menu__item-content');
+        const label = (labelEl?.innerText || e.innerText || '').trim().split('\n')[0].slice(0, 80);
+        const checked = labelEl?.dataset.selected === 'true' || e.getAttribute('aria-checked') === 'true' || /\b(selected|active|current)\b/.test(e.className);
+        return { el: e, label, checked };
+      }).filter(x => x.label && !/^(archived|已归档)$/i.test(x.label));
+      if (options.length) return options;
       const rows = [...document.querySelectorAll('.composer-history-hover-menu .ui-menu__row')];
       if (rows.length) return rows.map(e => ({ el: e, label: (e.querySelector('.compact-agent-history-react-menu-label, .ui-menu__item-content') || e).innerText.trim().split('\n')[0].slice(0, 80), checked: e.getAttribute('aria-checked') === 'true' || /\b(selected|active|current)\b/.test(e.className) }));
       return [...document.querySelectorAll('.quick-input-widget .monaco-list-row')].map(e => ({ el: e, label: (e.getAttribute('aria-label') || e.innerText).trim().split('\n')[0].slice(0, 80), checked: e.classList.contains('focused') }));
@@ -473,7 +492,9 @@ function pageHelpers() {
 
   const menuItems = kind => (MENU_ITEMS[kind]?.() || []).filter(x => vis(x.el) && x.label).map(({ el, ...rest }) => rest);
 
-  const menuOpen = () => [...document.querySelectorAll('.ui-menu, .composer-unified-context-menu-item, .composer-history-hover-menu')].some(vis);
+  const menuOpen = () => [...document.querySelectorAll(
+    '.ui-menu, .composer-unified-context-menu-item, .composer-history-hover-menu, [data-component="search-menu-list"], [role="listbox"][aria-label="Agent history"], [role="listbox"][aria-label="Chat history"]'
+  )].some(vis);
 
   // Model parameters (context size, effort, fast…) live in a per-model submenu behind its "Edit" button.
   const maxToggle = () => {
@@ -569,7 +590,7 @@ function pageHelpers() {
   };
 
   return { extract, locate, panelRect, control, menuItems, menuItem, quickOpenRows, agentState, queueTarget, stopTarget, focusQueueEdit,
-    menuOpen, maxToggle, modelTarget, modelParams, paramTarget, subTarget, activeChatTab, tabTarget, hasComposer, filesState, fileTarget, questionTarget };
+    menuOpen, maxToggle, modelTarget, modelParams, paramTarget, subTarget, activeChatTab, tabTarget, chatTabs, hasComposer, filesState, fileTarget, questionTarget };
 }
 
 const helpersCall = call => `(${pageHelpers.toString()})().${call}`;
@@ -767,7 +788,25 @@ class Session {
     }
     const max = kind === 'model' ? await this.cdp.evaluate(helpersCall('maxToggle()?.on ?? null')) : null;
     await this.closeMenus();
-    this.emit({ t: 'menu', kind, items, max });
+    const error = kind === 'history' && !items.length
+      ? '这个 Cursor 版本读不到历史菜单，可先用「对话」里打开中的标签，或切到「画面」手动打开'
+      : undefined;
+    this.emit({ t: 'menu', kind, items, max, error });
+  }
+
+  async listChats() {
+    const items = await this.cdp.evaluate(helpersCall('chatTabs()')) || [];
+    this.emit({ t: 'chats', items });
+  }
+
+  async switchChat(label) {
+    const pos = await this.cdp.evaluate(helpersCall(`tabTarget(${JSON.stringify(String(label ?? ''))})`));
+    if (!pos) {
+      await this.listChats();
+      throw new Error('没找到这个对话标签（可能刚被关掉），已刷新打开中的列表');
+    }
+    await this.tapCss(pos.x, pos.y);
+    setTimeout(() => this.pollChat().catch(() => {}), 400);
   }
 
   async closeMenus() {
@@ -1104,6 +1143,8 @@ class Session {
     switch (msg.t) {
       case 'openMenu': return this.openMenu(msg.kind);
       case 'pickMenu': return this.pickMenu(msg.kind, msg.label);
+      case 'listChats': return this.listChats();
+      case 'switchChat': return this.switchChat(msg.label);
       case 'toggleMax': return this.toggleMax();
       case 'params': return this.showParams(String(msg.model ?? ''), String(msg.label ?? ''));
       case 'pickParam': return this.pickParam(String(msg.model ?? ''), String(msg.label ?? ''), msg.section, msg.value);
